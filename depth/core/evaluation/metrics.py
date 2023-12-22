@@ -43,34 +43,66 @@ def metrics(gt, pred, min_depth=1e-3, max_depth=80):
 
     return a1, a2, a3, abs_rel, rmse, log_10, rmse_log, silog, sq_rel
 
-def eval_metrics(gt, pred, min_depth=1e-3, max_depth=80):
-    mask_1 = gt > min_depth
-    mask_2 = gt < max_depth
-    mask = np.logical_and(mask_1, mask_2)
+def eval_metrics(gts, preds, val_masks, min_depth=1e-3, max_depth=80):
+    a1s         = []
+    a2s         = []
+    a3s         = []
+    abs_rels    = []
+    rmses       = []
+    rmse_logs   = []
+    log_10s     = []
+    silogs      = []
+    sq_rels     = []
 
-    gt = gt[mask]
-    pred = pred[mask]
+    for i in range(len(gts)):
+        gt      = gts[i]
+        pred    = preds[i]
+        val_mask= val_masks[i]
 
-    thresh = np.maximum((gt / pred), (pred / gt))
-    a1 = (thresh < 1.25).mean()
-    a2 = (thresh < 1.25 ** 2).mean()
-    a3 = (thresh < 1.25 ** 3).mean()
+        gt = gt[val_mask]
+        
+        if np.shape(pred) != np.shape(gt):
+            pred = pred.squeeze()
+            pred = pred[val_mask]
+        else:
+            pred = pred[val_mask]
 
-    abs_rel = np.mean(np.abs(gt - pred) / gt)
-    sq_rel = np.mean(((gt - pred) ** 2) / gt)
+        thresh = np.maximum((gt / pred), (pred / gt))
+        a1 = (thresh < 1.25).mean()
+        a1s.append(a1)
+        a2 = (thresh < 1.25 ** 2).mean()
+        a2s.append(a2)
+        a3 = (thresh < 1.25 ** 3).mean()
+        a3s.append(a3)
 
-    rmse = (gt - pred) ** 2
-    rmse = np.sqrt(rmse.mean())
+        abs_rel = np.mean(np.abs(gt - pred) / gt)
+        abs_rels.append(abs_rel)
+        sq_rel = np.mean(((gt - pred) ** 2) / gt)
+        sq_rels.append(sq_rel)
 
-    rmse_log = (np.log(gt) - np.log(pred)) ** 2
-    rmse_log = np.sqrt(rmse_log.mean())
+        rmse = (gt - pred) ** 2
+        rmse = np.sqrt(rmse.mean())
+        rmses.append(rmse)
 
-    err = np.log(pred) - np.log(gt)
-    silog = np.sqrt(np.mean(err ** 2) - np.mean(err) ** 2) * 100
+        rmse_log = (np.log(gt) - np.log(pred)) ** 2
+        rmse_log = np.sqrt(rmse_log.mean())
+        rmse_logs.append(rmse_log)
 
-    log_10 = (np.abs(np.log10(gt) - np.log10(pred))).mean()
-    return dict(a1=a1, a2=a2, a3=a3, abs_rel=abs_rel, rmse=rmse, log_10=log_10, rmse_log=rmse_log,
-                silog=silog, sq_rel=sq_rel)
+        err = np.log(pred) - np.log(gt)
+        silog = np.sqrt(np.mean(err ** 2) - np.mean(err) ** 2) * 100
+        silogs.append(silog)
+
+        log_10 = (np.abs(np.log10(gt) - np.log10(pred))).mean()
+        log_10s.append(log_10)
+    return dict(a1=a1s, 
+                a2=a2s, 
+                a3=a3s, 
+                abs_rel=abs_rels, 
+                rmse=rmses, 
+                log_10=log_10s, 
+                rmse_log=rmse_logs,
+                silog=silogs, 
+                sq_rel=sq_rels)
 
 
 def pre_eval_to_metrics(pre_eval_results):

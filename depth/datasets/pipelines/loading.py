@@ -1,3 +1,4 @@
+import cv2
 import json
 import mmcv
 import numpy as np
@@ -5,6 +6,10 @@ import os.path as osp
 from PIL import Image
 from ..builder import PIPELINES
 
+import rasterio
+from rasterio.plot import show
+from rasterio.fill import fillnodata
+from rasterio.features import rasterize
 
 @PIPELINES.register_module()
 class LoadKITTICamIntrinsic(object):
@@ -237,4 +242,119 @@ class LoadImageFromFile(object):
         repr_str += f'(to_float32={self.to_float32},'
         repr_str += f"color_type='{self.color_type}',"
         repr_str += f"imdecode_backend='{self.imdecode_backend}')"
+        return repr_str
+
+@PIPELINES.register_module()
+class LoadSATIMGFromFile(object):
+    def __init__(self,
+                 to_float32=True,
+                 color_type='color',
+                 file_client_args=dict(backend='disk'),
+                 imdecode_backend='rasterio'):
+        self.to_float32 = to_float32
+        self.color_type = color_type
+        self.imdecode_backend = imdecode_backend
+    
+    def processing_channel(self, channel):
+        CLAHE = cv2.createCLAHE(clipLimit=10.0, tileGridSize=(8,8))
+        channel_min = np.min(channel)
+        channel_max = np.max(channel)
+        channel = (channel-channel_min) / (channel_max-channel_min)
+        channel *= 255
+        channel = CLAHE.apply(channel.astype(np.uint8))
+        return channel
+    
+    def __call__(self, results):
+        filename = results['img_info']['filename']
+        img = rasterio.open(filename)
+        img = img.read()
+        # shape of img : 3 x H x W
+        img = np.transpose(img, (1,2,0)).astype(np.float32)
+        img = img[:,:,[4,2,1]]
+        
+        r_c = self.processing_channel(img[:,:,0])
+        g_c = self.processing_channel(img[:,:,1])
+        b_c = self.processing_channel(img[:,:,2])
+        
+        img = np.stack((r_c, g_c, b_c), axis=2).astype(np.float32)
+
+        # shape op img : H x W x 3
+        results['filename'] = filename
+        results['ori_filename'] = filename.split('/')[-1]
+        results['img'] = img
+        results['img_shape'] = img.shape
+        results['ori_shape'] = img.shape
+        results['pad_shape'] = img.shape
+        results['scale_factor'] = 1.0
+        num_channels = 1 if len(img.shape) < 3 else img.shape[2]
+        results['img_norm_cfg'] = dict(mean=np.zeros(num_channels,
+                                                     dtype=np.float32),
+                                       std=np.ones(num_channels,
+                                                     dtype=np.float32),
+                                       to_rgb=False)
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f'(to_float32={self.to_float32},'
+        repr_str += f"color_type='{self.color_type}',"
+        repr_str += f"imdecode_backend='{self.imdecode_backend}')"
+        return repr_str
+
+@PIPELINES.register_module()
+class LoadANDProcessNDSM(object):
+    def __init__(self,
+                 file_client_args=dict(backend='disk'),
+                 imdecode_backend='rasterio'):
+        self.imdecode_backend = imdecode_backend
+
+    def __call__(self, results):
+        '''
+        if results['ann_info']['dtm'] is None:
+            _dsm        = rasterio.open(results['ann_info']['dsm'])
+            nodata_v    = _dsm.nodata
+            nodata_m    = _dsm.read_masks(1)
+
+            dsm         = _dsm.read()
+            dsm         = np.squeeze(dsm)
+            dsm[dsm == nodata_v] = 0
+
+        else:
+            _dsm        = rasterio.open(results['ann_info']['dsm'])
+            _dtm        = rasterio.open(results['ann_info']['dtm'])
+            nodata_m    = _dsm.read_masks(1)
+            
+            dsm         = dsm.read()
+            dtm         = dtm.read()
+
+            dsm[dsm<0]  = 0
+            dtm[dtm<0]  = 0
+
+            ndsm         = dsm - dtm
+            ndsm         = np.squeeze(ndsm)
+        '''
+
+        dsm = rasterio.open(results['ann_info']['dsm'])
+        dtm = rasterio.open(results['ann_info']['dtm'])
+
+        nodata_m = dsm.read_masks(1)
+        nodata_m = nodata_m.astype(np.bool_)
+
+        dsm = dsm.read()
+        dtm = dtm.read()
+
+        dsm[dsm<0] = 0
+        dtm[dtm<0] = 0
+
+        ndsm = dsm-dtm
+
+        results['depth_gt'] = ndsm
+        results['depth_ori_shape'] = ndsm.shape
+        results['val_mask'] = nodata_m
+        results['depth_fields'].append('depth_gt')
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str = f"imdecode_backend='{self.imdecode_backend}')"
         return repr_str

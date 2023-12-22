@@ -7,6 +7,8 @@ from ..builder import PIPELINES
 from numpy.core.fromnumeric import shape
 from mmcv.utils import deprecated_api_warning
 
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 @PIPELINES.register_module()
 class Normalize(object):
@@ -622,6 +624,79 @@ class Resize(object):
         repr_str = self.__class__.__name__
         repr_str += (f'(img_scale={self.img_scale}, '
                      f'multiscale_mode={self.multiscale_mode}, '
+                     f'ratio_range={self.ratio_range}, '
+                     f'keep_ratio={self.keep_ratio})')
+        return repr_str
+
+@PIPELINES.register_module()
+class DSM_Transform(object):
+    def __init__(self,
+            tr_list             = None,
+            is_normalize        = False,
+            mean                = [123.675, 116.28, 103.53],
+            std                 = [58.395, 57.12, 57.375],
+            crop_size           = None,
+            aug_probs           = None,
+            to_tensor           = False,
+        ):
+        self.tr_list    = []
+
+        for tr in tr_list:
+            if tr is 'random_crop':
+                self.tr_list.append(A.RandomCrop(crop_size, crop_size))
+            if tr is 'resize':
+                self.tr_list.append(A.Resize(resize, resize))
+            if tr is 'HFlip':
+                self.tr_list.append(A.HorizontalFlip(aug_probs))
+            if tr is 'VFlip':
+                self.tr_list.append(A.VerticalFlip(aug_probs))
+            if tr is 'random_rotate90':
+                self.tr_list.append(A.RandomRotate90(aug_probs))
+
+        if is_normalize:
+            self.normalize = A.Normalize(mean=mean, std=std)
+            self.tr_list.append(self.normalize)
+
+        if to_tensor:
+            self.tr_list.append(ToTensorV2())
+
+    def __call__(self, results):
+        image   = results['img']
+        ndsm    = results['depth_gt']
+        mask    = results['val_mask']
+        
+        print('shape ndsm : ', np.shape(ndsm))
+        print('shape mask : ', np.shape(mask))
+
+        if len(np.shape(ndsm)) == 3:
+            print('checkpoint 1')
+            ndsm = np.reshape(ndsm, ndsm.shape[1:])
+            print('ndsm shape : ', np.shape(ndsm))
+        ndsm = np.stack((ndsm, mask), axis=2)
+        
+        print('shape coupled data : ', np.shape(ndsm))
+
+        tr_function = A.Compose(self.tr_list)
+        processed_data = tr_function(image=image, mask=ndsm)
+
+        img     = processed_data['image']
+        ndsm    = processed_data['mask'][:,:,0]
+        nd_mask = processed_data['mask'][:,:,1]
+
+        results['img']          = img
+        results['img_shape']    = img.shape
+        results['depth_gt']     = ndsm
+        results['val_mask']     = nd_mask
+
+        #print('img shape : ', img.shape)
+        #print('depth shape : ', ndsm.shape)
+
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += (f'(img_scale={self.img_scale}, '
+                     f'multiscale_mofd={self.multiscale_mode},'
                      f'ratio_range={self.ratio_range}, '
                      f'keep_ratio={self.keep_ratio})')
         return repr_str

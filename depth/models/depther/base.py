@@ -71,6 +71,7 @@ class BaseDepther(BaseModule, metaclass=ABCMeta):
                 augs (multiscale, flip, etc.) and the inner list indicates
                 images in a batch.
         """
+        
         for var, name in [(imgs, 'imgs'), (img_metas, 'img_metas')]:
             if not isinstance(var, list):
                 raise TypeError(f'{name} must be a list, but got '
@@ -81,7 +82,7 @@ class BaseDepther(BaseModule, metaclass=ABCMeta):
                              f'num of image meta ({len(img_metas)})')
         # all images in the same aug batch all of the same ori_shape and pad
         # shape
-        for img_meta in img_metas:
+        for img_meta in img_metas[0]:
             ori_shapes = [_['ori_shape'] for _ in img_meta]
             assert all(shape == ori_shapes[0] for shape in ori_shapes)
             img_shapes = [_['img_shape'] for _ in img_meta]
@@ -90,9 +91,12 @@ class BaseDepther(BaseModule, metaclass=ABCMeta):
             assert all(shape == pad_shapes[0] for shape in pad_shapes)
 
         if num_augs == 1:
-            return self.simple_test(imgs[0], img_metas[0], **kwargs)
+            print('kwargs : {kwargs}')
+            #return self.simple_test(imgs[0], img_metas[0], **kwargs)
+            return self.simple_test(imgs[0], img_metas[0])
         else:
-            return self.aug_test(imgs, img_metas, **kwargs)
+            #return self.aug_test(imgs, img_metas, **kwargs)
+            return self.aug_test(imgs, img_metas)
 
     @auto_fp16(apply_to=('img', ))
     def forward(self, img, img_metas, return_loss=True, **kwargs):
@@ -108,6 +112,8 @@ class BaseDepther(BaseModule, metaclass=ABCMeta):
         if return_loss:
             return self.forward_train(img, img_metas, **kwargs)
         else:
+            img = [img]
+            img_metas = [[img_metas]]
             return self.forward_test(img, img_metas, **kwargs)
 
     def train_step(self, data_batch, optimizer, **kwargs):

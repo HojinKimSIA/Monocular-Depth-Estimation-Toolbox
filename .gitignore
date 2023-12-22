@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# model train log
+*.O
+w_dirs
+
 # Distribution / packaging
 .Python
 build/
